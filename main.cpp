@@ -16,6 +16,7 @@ struct ProgOpts {
   const char * outFile = nullptr;
   const char * inFile = nullptr;
   double scale = 1.0;
+  unsigned int outFormat = 0;
 };
 
 static const double FLOAT_MAX = std::numeric_limits<float>::max();
@@ -111,7 +112,7 @@ void printSceneStats(const aiScene* scene) {
 ProgOpts readOpts(int argc, char** argv) {
   int c;
   ProgOpts out;
-  while ((c = getopt(argc, argv, "s:xo:")) != -1) {
+  while ((c = getopt(argc, argv, "s:xo:f:")) != -1) {
     switch (c) {
     case 'o':
       out.outFile = optarg;
@@ -121,6 +122,9 @@ ProgOpts readOpts(int argc, char** argv) {
       break;
     case 's':
       out.scale = atof(optarg);
+      break;
+    case 'f':
+      out.outFormat = atoi(optarg);
       break;
     case '?':
       if (optopt == 'o')
@@ -203,7 +207,7 @@ int main(int argc, char** argv) {
 
     // Export if outfile specified
     if (opts.outFile) {
-      const aiExportFormatDesc* pDesc = exporter.GetExportFormatDescription(3); //PLY (binary)
+      const aiExportFormatDesc* pDesc = exporter.GetExportFormatDescription(opts.outFormat);
       exporter.Export(scene, pDesc->id, opts.outFile);
       printf("Exported to %s\n", opts.outFile);
     }

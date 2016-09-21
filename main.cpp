@@ -4,6 +4,8 @@
 
 #include <assimp/Importer.hpp> // C++ importer interface
 #include <assimp/Exporter.hpp>
+#include <assimp/Logger.hpp>
+#include <assimp/DefaultLogger.hpp>
 #include <assimp/scene.h> // Output data structure
 #include <assimp/postprocess.h> // Post processing flags
 
@@ -13,6 +15,7 @@ struct ProgOpts {
   bool printFormats = false;
   const char * outFile = nullptr;
   const char * inFile = nullptr;
+  double scale = 1.0;
 };
 
 static const double FLOAT_MAX = std::numeric_limits<float>::max();
@@ -27,6 +30,15 @@ struct BBox {
 
   float minZ = FLOAT_MAX;
   float maxZ = FLOAT_MIN;
+};
+
+class myStream : public Assimp::LogStream {
+public:
+  myStream() { }
+  ~myStream() { }
+  void write(const char* message) override {
+    printf("%s\n", message);
+  }
 };
 
 // void printMeshStats(const aiMesh* mesh, bool doBBox) {
@@ -82,20 +94,24 @@ void printSceneStats(const aiScene* scene) {
   for (size_t i = 0; i < scene->mNumMeshes; i++) {
       const aiMesh* mesh = scene->mMeshes[i];
       printf("Mesh %zu has %d faces\n", i, mesh->mNumFaces);
+      printf("Mesh %zu has %d vertices\n", i, mesh->mNumVertices);
       BBox bb = calculateBBox(mesh);
       printf("BBox (%f, %f, %f)  (%f, %f, %f)\n", bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ);
       printf("X %f\n", bb.maxX - bb.minX);
       printf("Y %f\n", bb.maxY - bb.minY);
       printf("Z %f\n", bb.maxZ - bb.minZ);
       float volume = calculateMeshVolume(mesh);
-      printf("Volume %f\n", volume);
+      printf("Volume %f (%f)\n", volume, volume / 1000);
+      printf("Color channels: %d\n", mesh->GetNumColorChannels());
+      printf("UV channels: %d\n", mesh->GetNumUVChannels());
+      printf("%d\n", mesh->mNumUVComponents[0]);
   }
 }
 
 ProgOpts readOpts(int argc, char** argv) {
   int c;
   ProgOpts out;
-  while ((c = getopt(argc, argv, "xo:")) != -1) {
+  while ((c = getopt(argc, argv, "s:xo:")) != -1) {
     switch (c) {
     case 'o':
       out.outFile = optarg;
@@ -103,6 +119,10 @@ ProgOpts readOpts(int argc, char** argv) {
     case 'x':
       out.printFormats = true;
       break;
+    case 's':
+      out.scale = atof(optarg);
+      break;
+    case '?':
       if (optopt == 'o')
         fprintf (stderr, "Option -%c requires an argument.\n", optopt);
       else if (isprint (optopt))
@@ -131,7 +151,22 @@ void printFormats(const Assimp::Exporter& exporter) {
   }
 }
 
+void scaleSceneMeshes(const aiScene* pScene, double scale) {
+  for (size_t meshIdx =0; meshIdx < pScene->mNumMeshes; meshIdx++) {
+    const aiMesh* pMesh = pScene->mMeshes[meshIdx];
+    const size_t numVerts = pMesh->mNumVertices;
+    for (size_t vertIdx = 0; vertIdx < numVerts; vertIdx++) {
+      aiVector3D& v = pMesh->mVertices[vertIdx];
+      v *= scale;
+    }
+  }
+}
+
 int main(int argc, char** argv) {
+    Assimp::DefaultLogger::create("", Assimp::Logger::VERBOSE);
+    unsigned int severity = Assimp::Logger::Err | Assimp::Logger::Warn;
+    severity |= Assimp::Logger::Debugging | Assimp::Logger::Info;
+    Assimp::DefaultLogger::get()->attachStream(new myStream(), severity);
     ProgOpts opts = readOpts(argc, argv);
     Assimp::Importer importer;
     Assimp::Exporter::Exporter exporter;
@@ -148,20 +183,31 @@ int main(int argc, char** argv) {
     // Read file
     const std::string& pFile(opts.inFile);
     //TODO: aiProcess::Triangulate
-    const aiScene* scene = importer.ReadFile( pFile, 0 );
+    const aiScene* scene = importer.ReadFile( pFile,
+      aiProcess_Triangulate |
+      aiProcess_JoinIdenticalVertices |
+      aiProcess_ValidateDataStructure
+      //aiProcess_SortByPType
+    );
     if (!scene) {
-        printf("%s\n", importer.GetErrorString());
+        printf("Importer error: %s\n", importer.GetErrorString());
         return 1;
     }
 
     printSceneStats(scene);
 
+    if (opts.scale != 1.0) {
+      printf("Scaling mesh by %f\n", opts.scale);
+      scaleSceneMeshes(scene, opts.scale);
+    }
+
     // Export if outfile specified
     if (opts.outFile) {
-      const aiExportFormatDesc* pDesc = exporter.GetExportFormatDescription(3);
+      const aiExportFormatDesc* pDesc = exporter.GetExportFormatDescription(3); //PLY (binary)
       exporter.Export(scene, pDesc->id, opts.outFile);
       printf("Exported to %s\n", opts.outFile);
     }
 
+    Assimp::DefaultLogger::kill();
     return 0;
 }

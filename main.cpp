@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <limits>
 #include <algorithm>
+#include <iostream>
 
 #include <assimp/Importer.hpp> // C++ importer interface
 #include <assimp/Exporter.hpp>
@@ -16,7 +17,7 @@ struct ProgOpts {
   const char * outFile = nullptr;
   const char * inFile = nullptr;
   double scale = 1.0;
-  unsigned int outFormat = 0;
+  int outFormat = -1;
 };
 
 static const double FLOAT_MAX = std::numeric_limits<float>::max();
@@ -46,6 +47,8 @@ public:
 //
 // }
 //
+
+
 
 float calculateFaceVolume(const aiVector3D& a, const aiVector3D& b, const aiVector3D& c) {
   return (
@@ -90,23 +93,42 @@ BBox calculateBBox(const aiMesh* mesh) {
     return out;
 }
 
-void printSceneStats(const aiScene* scene) {
-  printf("There are %d meshes in the scene\n", scene->mNumMeshes);
-  for (size_t i = 0; i < scene->mNumMeshes; i++) {
-      const aiMesh* mesh = scene->mMeshes[i];
-      printf("Mesh %zu has %d faces\n", i, mesh->mNumFaces);
-      printf("Mesh %zu has %d vertices\n", i, mesh->mNumVertices);
-      BBox bb = calculateBBox(mesh);
-      printf("BBox (%f, %f, %f)  (%f, %f, %f)\n", bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ);
-      printf("X %f\n", bb.maxX - bb.minX);
-      printf("Y %f\n", bb.maxY - bb.minY);
-      printf("Z %f\n", bb.maxZ - bb.minZ);
-      float volume = calculateMeshVolume(mesh);
-      printf("Volume %f (%f)\n", volume, volume / 1000);
-      printf("Color channels: %d\n", mesh->GetNumColorChannels());
-      printf("UV channels: %d\n", mesh->GetNumUVChannels());
-      printf("%d\n", mesh->mNumUVComponents[0]);
+void printIndent(unsigned int depth) {
+  for (unsigned int i = 0; i < depth; i++) {
+    printf("  ");
   }
+}
+
+void printMeshStats(const aiMesh* pMesh, unsigned int depth) {
+  BBox bb = calculateBBox(pMesh);
+  float volume = calculateMeshVolume(pMesh);
+
+  printIndent(depth); printf("Mesh - %s\n", pMesh->mName.C_Str());
+  printIndent(depth + 1); printf("%d faces\n", pMesh->mNumFaces);
+  printIndent(depth + 1); printf("%d vertices\n", pMesh->mNumVertices);
+  printIndent(depth + 1); printf("BBox (%f, %f, %f)  (%f, %f, %f)\n", bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ);
+  printIndent(depth + 1); printf("X %f\n", bb.maxX - bb.minX);
+  printIndent(depth + 1); printf("Y %f\n", bb.maxY - bb.minY);
+  printIndent(depth + 1); printf("Z %f\n", bb.maxZ - bb.minZ);
+  printIndent(depth + 1); printf("Volume %f (%f)\n", volume, volume / 1000);
+  printIndent(depth + 1); printf("Color channels: %d\n", pMesh->GetNumColorChannels());
+  printIndent(depth + 1); printf("UV channels: %d\n", pMesh->GetNumUVChannels());
+  printIndent(depth + 1); printf("%d\n", pMesh->mNumUVComponents[0]);
+}
+
+void printNode(const aiNode* pNode, aiMesh** meshes, unsigned int depth) {
+  printIndent(depth);
+  printf("Node - %s: %d meshes, %d children\n", pNode->mName.C_Str(), pNode->mNumMeshes, pNode->mNumChildren);
+  for (size_t i = 0; i < pNode->mNumMeshes; i++) {
+    printMeshStats(meshes[pNode->mMeshes[i]], depth + 1);
+  }
+  for (size_t i = 0; i < pNode->mNumChildren; i++) {
+    printNode(pNode->mChildren[i], meshes, depth + 1);
+  }
+}
+
+void printSceneStats(const aiScene* scene) {
+  printNode(scene->mRootNode, scene->mMeshes, 0);
 }
 
 ProgOpts readOpts(int argc, char** argv) {
@@ -161,15 +183,36 @@ void scaleSceneMeshes(const aiScene* pScene, double scale) {
     const size_t numVerts = pMesh->mNumVertices;
     for (size_t vertIdx = 0; vertIdx < numVerts; vertIdx++) {
       aiVector3D& v = pMesh->mVertices[vertIdx];
-      v *= scale;
+      v *= float(scale);
     }
   }
+}
+
+std::string getFilenameExt(std::string filename) {
+  std::string::size_type idx = filename.rfind('.');
+  std::string ext;
+  if (idx != std::string::npos) {
+    ext = filename.substr(idx+1);
+  }
+  return ext;
+}
+
+const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter, std::string ext) {
+  size_t exportFormatCount = exporter.GetExportFormatCount();
+  for (size_t i = 0; i < exportFormatCount; i++) {
+    const aiExportFormatDesc* pDesc = exporter.GetExportFormatDescription(i);
+    if (ext.compare(pDesc->fileExtension) == 0) {
+      return pDesc;
+    }
+  }
+  return nullptr;
 }
 
 int main(int argc, char** argv) {
     Assimp::DefaultLogger::create("", Assimp::Logger::VERBOSE);
     unsigned int severity = Assimp::Logger::Err | Assimp::Logger::Warn;
-    severity |= Assimp::Logger::Debugging | Assimp::Logger::Info;
+    // TODO: add -v option for verbose to enable debug & info messages
+    // severity |= Assimp::Logger::Debugging | Assimp::Logger::Info;
     Assimp::DefaultLogger::get()->attachStream(new myStream(), severity);
     ProgOpts opts = readOpts(argc, argv);
     Assimp::Importer importer;
@@ -207,8 +250,26 @@ int main(int argc, char** argv) {
 
     // Export if outfile specified
     if (opts.outFile) {
-      const aiExportFormatDesc* pDesc = exporter.GetExportFormatDescription(opts.outFormat);
-      exporter.Export(scene, pDesc->id, opts.outFile);
+      std::string outFile(opts.outFile);
+      std::string ext = getFilenameExt(outFile);
+      const aiExportFormatDesc* pOutDesc = nullptr;
+      if (opts.outFormat != -1) {
+        pOutDesc = exporter.GetExportFormatDescription(opts.outFormat);
+        if (ext.compare(pOutDesc->fileExtension)) {
+          outFile += pOutDesc->fileExtension;
+        }
+      } else {
+        if (ext.empty()) {
+          printf("No export format specified\n");
+          abort();
+        }
+        pOutDesc = findFormatDescForExt(exporter, ext);
+      }
+      if (!pOutDesc) {
+        printf("Couldn't find appropriate exporter for extension %s\n", ext.c_str());
+        abort();
+      }
+      exporter.Export(scene, pOutDesc->id, outFile);
       printf("Exported to %s\n", opts.outFile);
     }
 

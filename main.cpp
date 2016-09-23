@@ -113,7 +113,6 @@ void printMeshStats(const aiMesh* pMesh, unsigned int depth) {
   printIndent(depth + 1); printf("Volume %f (%f)\n", volume, volume / 1000);
   printIndent(depth + 1); printf("Color channels: %d\n", pMesh->GetNumColorChannels());
   printIndent(depth + 1); printf("UV channels: %d\n", pMesh->GetNumUVChannels());
-  printIndent(depth + 1); printf("%d\n", pMesh->mNumUVComponents[0]);
 }
 
 void printNode(const aiNode* pNode, aiMesh** meshes, unsigned int depth) {

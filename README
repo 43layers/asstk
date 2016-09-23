@@ -1,0 +1,4 @@
+Custom cli for assimp (assimp ToolKit)
+
+Usage:
+asstk [-o OUTFILE] [-f FORMAT] [-s SCALE] [x] INFILE

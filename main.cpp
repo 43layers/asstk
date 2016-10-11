@@ -43,13 +43,6 @@ public:
   }
 };
 
-// void printMeshStats(const aiMesh* mesh, bool doBBox) {
-//
-// }
-//
-
-
-
 float calculateFaceVolume(const aiVector3D& a, const aiVector3D& b, const aiVector3D& c) {
   return (
     a.x*b.y*c.z +
@@ -119,7 +112,7 @@ void printNode(const aiNode* pNode, aiMesh** meshes, unsigned int depth) {
   printIndent(depth);
   printf("Node - %s: %d meshes, %d children\n", pNode->mName.C_Str(), pNode->mNumMeshes, pNode->mNumChildren);
   for (size_t i = 0; i < pNode->mNumMeshes; i++) {
-    printMeshStats(meshes[pNode->mMeshes[i]], depth + 1);
+    //printMeshStats(meshes[pNode->mMeshes[i]], depth + 1);
   }
   for (size_t i = 0; i < pNode->mNumChildren; i++) {
     printNode(pNode->mChildren[i], meshes, depth + 1);

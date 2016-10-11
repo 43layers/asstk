@@ -1,4 +1,13 @@
 Custom cli for assimp (assimp ToolKit)
 
+mkdir build
+cd build
+cmake .. -G"Unix Makefiles" -DASSIMP_DIR=path/to/assimp
+
 Usage:
-asstk [-o OUTFILE] [-f FORMAT] [-s SCALE] [x] INFILE
+asstk [-o OUTFILE] [-f FORMAT] [-s SCALE] [-x] INFILE
+
+-x: print exportable formats
+-o: export model to. infers format from filename if possible, unless overridden by -f
+-f: force export to specific format (number from -x listing)
+-s: uniform scale model by a specific amount before exporting

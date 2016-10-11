@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+
+# OBJ consolidator. Really simple, makes a lot of assumptions. Takes an OBJ file with a bazillion usemtl lines, which confuses meshlab and blender into freezing trying to create so many meshes, into a minimal set of meshes, one for each material.
+
+import sys, os
+
+def writeline(f, line):
+  f.write(line)
+
+def main(argv):
+  if len(argv) != 2:
+    return 1
+
+  infile = argv[1]
+
+  with open(infile) as f:
+    lines = f.readlines()
+    v_count = 0
+    vt_count = 0
+    f_count = 0
+    usemtl_count = 0
+    types = {}
+
+    g_line = ''
+    mtllib_lines = []
+    vt_lines = []
+    v_lines = []
+    f_groups = {}
+
+    current_mtl = ''
+
+    for line in lines:
+      tokens = line.split()
+      if len(tokens) > 0:
+        line_type = tokens[0]
+        if line_type == 'g':
+          g_line = line
+        elif line_type == 'mtllib':
+          mtllib_lines.append(line)
+        elif line_type == 'v':
+          v_lines.append(line)
+        elif line_type == 'vt':
+          vt_lines.append(line)
+        elif line_type == 'usemtl':
+          current_mtl = line
+        elif line_type == 'f':
+          if f_groups.get(current_mtl) is None:
+            f_groups[current_mtl] = []
+          f_groups[current_mtl].append(line)
+
+    with open('out.obj', 'w') as outfile:
+      for mtllib_line in mtllib_lines:
+        writeline(outfile, mtllib_line)
+      for v_line in v_lines:
+        writeline(outfile, v_line)
+      for vt_line in vt_lines:
+        writeline(outfile, vt_line)
+      writeline(outfile, g_line)
+      for (usemtl_line, f_lines) in f_groups.items():
+        writeline(outfile, usemtl_line)
+        for f_line in f_lines:
+          writeline(outfile, f_line)
+
+
+if __name__=="__main__":
+  main(sys.argv)

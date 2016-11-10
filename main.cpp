@@ -21,6 +21,7 @@ struct ProgOpts {
   const char * inFile = nullptr;
   double scale = 1.0;
   int outFormat = -1;
+  bool printStats = false;
 };
 
 static const double FLOAT_MAX = std::numeric_limits<float>::max();
@@ -143,6 +144,9 @@ ProgOpts readOpts(int argc, char** argv) {
     case 'f':
       out.outFormat = atoi(optarg);
       break;
+    case 't':
+      out.printStats = true;
+      break;
     case '?':
       if (optopt == 'o')
         fprintf (stderr, "Option -%c requires an argument.\n", optopt);
@@ -203,6 +207,12 @@ const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter,
   return nullptr;
 }
 
+void convertImage(std::string inPath, std::string outPath) {
+  Magick::Image img;
+  img.read(inPath);
+  img.write(outPath);
+}
+
 int main(int argc, char** argv) {
     Assimp::DefaultLogger::create("", Assimp::Logger::VERBOSE);
     unsigned int severity = Assimp::Logger::Err | Assimp::Logger::Warn;
@@ -212,6 +222,8 @@ int main(int argc, char** argv) {
     ProgOpts opts = readOpts(argc, argv);
     Assimp::Importer importer;
     Assimp::Exporter::Exporter exporter;
+
+    convertImage("image.png", "image.jpg");
 
     if (opts.printFormats) {
       printFormats(exporter);
@@ -236,7 +248,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    printSceneStats(scene);
+    if (opts.printStats) {
+      printSceneStats(scene);
+    }
 
     if (opts.scale != 1.0) {
       printf("Scaling mesh by %f\n", opts.scale);

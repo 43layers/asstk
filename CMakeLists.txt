@@ -20,9 +20,8 @@ list(APPEND LINK_LIBS ${ZLIB_LIBRARIES})
 
 # imagemagick (for converting textures)
 find_package(ImageMagick COMPONENTS Magick++ convert)
-message(WARNING "WOAHH ${ImageMagic_INCLUDE_DIRS} ${ImageMagick_LIBARIES} ${ImageMagick_convert_INCLUDE_DIRS}")
 include_directories(${ImageMagick_INCLUDE_DIRS})
-list(APPEND LINK_LIBS ${ImageMagic_LIBRARIES})
+list(APPEND LINK_LIBS ${ImageMagick_LIBRARIES} ${ImageMagick_convert_LIBRARIES})
 
 set(SOURCE_DIR ${${PROJECT_NAME}_SOURCE_DIR})
 set(CMAKE_MODULE_PATH "${SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH} )

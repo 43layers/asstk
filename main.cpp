@@ -11,6 +11,8 @@
 #include <assimp/scene.h> // Output data structure
 #include <assimp/postprocess.h> // Post processing flags
 
+#include <Magick++.h>
+
 typedef unsigned int uint;
 
 struct ProgOpts {

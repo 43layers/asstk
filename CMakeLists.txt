@@ -23,6 +23,11 @@ find_package(ImageMagick COMPONENTS Magick++ convert)
 include_directories(${ImageMagick_INCLUDE_DIRS})
 list(APPEND LINK_LIBS ${ImageMagick_LIBRARIES} ${ImageMagick_convert_LIBRARIES})
 
+#boost (for filesystem & some other utils)
+find_package(Boost COMPONENTS system filesystem)
+include_directories( ${Boost_INCLUDE_DIR} )
+list(APPEND LINK_LIBS ${Boost_LIBRARIES})
+
 set(SOURCE_DIR ${${PROJECT_NAME}_SOURCE_DIR})
 set(CMAKE_MODULE_PATH "${SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH} )
 

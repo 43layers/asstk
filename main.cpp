@@ -13,6 +13,9 @@
 
 #include <Magick++.h>
 
+#include "boost/filesystem.hpp"
+
+using boost::filesystem::path;
 typedef unsigned int uint;
 
 struct ProgOpts {
@@ -187,15 +190,6 @@ void scaleSceneMeshes(const aiScene* pScene, double scale) {
   }
 }
 
-std::string getFilenameExt(std::string filename) {
-  std::string::size_type idx = filename.rfind('.');
-  std::string ext;
-  if (idx != std::string::npos) {
-    ext = filename.substr(idx+1);
-  }
-  return ext;
-}
-
 const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter, std::string ext) {
   size_t exportFormatCount = exporter.GetExportFormatCount();
   for (size_t i = 0; i < exportFormatCount; i++) {
@@ -222,8 +216,6 @@ int main(int argc, char** argv) {
     ProgOpts opts = readOpts(argc, argv);
     Assimp::Importer importer;
     Assimp::Exporter::Exporter exporter;
-
-    convertImage("image.png", "image.jpg");
 
     if (opts.printFormats) {
       printFormats(exporter);
@@ -259,13 +251,15 @@ int main(int argc, char** argv) {
 
     // Export if outfile specified
     if (opts.outFile) {
-      std::string outFile(opts.outFile);
-      std::string ext = getFilenameExt(outFile);
+      path outFilePath(opts.outFile);
+      std::string stem = outFilePath.stem().string();
+      std::string ext = outFilePath.extension().string().substr(1);
+
       const aiExportFormatDesc* pOutDesc = nullptr;
       if (opts.outFormat != -1) {
         pOutDesc = exporter.GetExportFormatDescription(opts.outFormat);
         if (ext.compare(pOutDesc->fileExtension)) {
-          outFile += pOutDesc->fileExtension;
+          outFilePath += pOutDesc->fileExtension;
         }
       } else {
         if (ext.empty()) {
@@ -278,8 +272,8 @@ int main(int argc, char** argv) {
         printf("Couldn't find appropriate exporter for extension %s\n", ext.c_str());
         abort();
       }
-      exporter.Export(scene, pOutDesc->id, outFile);
-      printf("Exported to %s\n", opts.outFile);
+      exporter.Export(scene, pOutDesc->id, outFilePath.string());
+      std::cout << "Exported to " << outFilePath << std::endl;
     }
 
     Assimp::DefaultLogger::kill();

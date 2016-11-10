@@ -3,6 +3,7 @@
 #include <limits>
 #include <algorithm>
 #include <iostream>
+#include <sstream>
 
 #include <assimp/Importer.hpp> // C++ importer interface
 #include <assimp/Exporter.hpp>
@@ -190,6 +191,44 @@ void scaleSceneMeshes(const aiScene* pScene, double scale) {
   }
 }
 
+void convertImage(std::string inPath, std::string outPath) {
+  Magick::Image img;
+  img.read(inPath);
+  img.write(outPath);
+}
+
+void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
+  path stem = outpath.stem();
+  path inDir = inpath.parent_path();
+  path outDir = outpath.parent_path();
+
+  for (size_t meshIdx = 0; meshIdx < pScene->mNumMeshes; meshIdx++) {
+    // Find mesh's existing texture
+    const aiMesh* pMesh = pScene->mMeshes[meshIdx];
+    uint materialIndex = pMesh->mMaterialIndex;
+    aiMaterial* pMaterial = pScene->mMaterials[materialIndex];
+    aiString s;
+    path oldTexturePath;
+    if (AI_SUCCESS == pMaterial->Get(AI_MATKEY_TEXTURE_DIFFUSE(0), s)) {
+      oldTexturePath = path(s.data);
+    }
+
+    // Rename it (within the mesh) to NAME_tex_N.EXT
+    path ext = oldTexturePath.extension();
+    std::stringstream newTextureNameStream;
+    newTextureNameStream << stem.string() << "_tex_" << meshIdx << ext.string();
+    aiString newName(newTextureNameStream.str());
+    pMaterial->AddProperty(&newName, AI_MATKEY_TEXTURE_DIFFUSE(0));
+
+    // Copy, convert, and rename the image file to its new home
+    path texOut = outDir;
+    texOut /= path(newTextureNameStream.str());
+    path texIn = inDir;
+    texIn /= path(oldTexturePath);
+    convertImage(texIn.string(), texOut.string());
+  }
+}
+
 const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter, std::string ext) {
   size_t exportFormatCount = exporter.GetExportFormatCount();
   for (size_t i = 0; i < exportFormatCount; i++) {
@@ -201,11 +240,7 @@ const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter,
   return nullptr;
 }
 
-void convertImage(std::string inPath, std::string outPath) {
-  Magick::Image img;
-  img.read(inPath);
-  img.write(outPath);
-}
+
 
 int main(int argc, char** argv) {
     Assimp::DefaultLogger::create("", Assimp::Logger::VERBOSE);
@@ -254,6 +289,8 @@ int main(int argc, char** argv) {
       path outFilePath(opts.outFile);
       std::string stem = outFilePath.stem().string();
       std::string ext = outFilePath.extension().string().substr(1);
+
+      convertSceneTextures(scene, opts.inFile, opts.outFile);
 
       const aiExportFormatDesc* pOutDesc = nullptr;
       if (opts.outFormat != -1) {

@@ -21,9 +21,9 @@ include_directories(${ZLIB_INCLUDE_DIR})
 list(APPEND LINK_LIBS ${ZLIB_LIBRARIES})
 
 # imagemagick (for converting textures)
-find_package(ImageMagick COMPONENTS Magick++ convert REQUIRED)
+find_package(ImageMagick COMPONENTS Magick++ MagickCore convert montage REQUIRED)
 include_directories(${ImageMagick_INCLUDE_DIRS})
-list(APPEND LINK_LIBS ${ImageMagick_LIBRARIES} ${ImageMagick_convert_LIBRARIES})
+list(APPEND LINK_LIBS ${ImageMagick_LIBRARIES})
 
 #boost (for filesystem & some other utils)
 find_package(Boost COMPONENTS system filesystem REQUIRED)

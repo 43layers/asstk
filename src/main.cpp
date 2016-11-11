@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <list>
 
 #include <assimp/Importer.hpp> // C++ importer interface
 #include <assimp/Exporter.hpp>
@@ -15,11 +16,9 @@
 #include <Magick++.h>
 
 #include "boost/filesystem.hpp"
-
-#include <OpenMesh/Core/Mesh/PolyMesh_ArrayKernelT.hh>
-typedef OpenMesh::PolyMesh_ArrayKernelT<>  MyMesh;
-
 using boost::filesystem::path;
+
+
 typedef unsigned int uint;
 
 struct ProgOpts {
@@ -200,10 +199,38 @@ void convertImage(std::string inPath, std::string outPath) {
   img.write(outPath);
 }
 
+bool montageImages(std::vector<path> images, path writeTo) {
+  std::list<Magick::Image> sourceImageList;
+  Magick::Image image;
+
+  for (path p : images) {
+    if (!boost::filesystem::exists(p)) return false;
+    if (!boost::filesystem::is_regular_file(p)) return false;
+
+    image.read(p.string());
+    sourceImageList.push_back(image);
+  }
+
+  Magick::Color color("rgba(0,0,0,0)");
+  Magick::Montage montageSettings;
+  montageSettings.geometry("4096x4096-0-0");
+  montageSettings.shadow(false);
+  montageSettings.backgroundColor(color);
+  montageSettings.tile(Magick::Geometry(sourceImageList.size(), 1));
+
+  std::list<Magick::Image> montageList;
+  Magick::montageImages(&montageList, sourceImageList.begin(), sourceImageList.end(), montageSettings);
+  Magick::writeImages(montageList.begin(), montageList.end(), writeTo.string());
+
+  return true;
+}
+
 void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
   path stem = outpath.stem();
   path inDir = inpath.parent_path();
   path outDir = outpath.parent_path();
+
+  std::vector<path> oldTextures;
 
   for (size_t meshIdx = 0; meshIdx < pScene->mNumMeshes; meshIdx++) {
     // Find mesh's existing texture
@@ -216,6 +243,8 @@ void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
     if (AI_SUCCESS == pMaterial->Get(AI_MATKEY_TEXTURE_DIFFUSE(0), s)) {
       oldTexturePath = path(s.data);
     }
+
+    oldTextures.push_back(oldTexturePath);
 
     // Rename it (within the mesh) to NAME_tex_N.EXT
     path ext = oldTexturePath.extension();
@@ -231,6 +260,10 @@ void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
     texIn /= path(oldTexturePath);
     convertImage(texIn.string(), texOut.string());
   }
+
+  path montageOut = outDir;
+  montageOut /= path("tex_montage.jpg");
+  montageImages(oldTextures, montageOut);
 }
 
 const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter, std::string ext) {
@@ -243,8 +276,6 @@ const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter,
   }
   return nullptr;
 }
-
-
 
 int main(int argc, char** argv) {
     Assimp::DefaultLogger::create("", Assimp::Logger::VERBOSE);
@@ -290,7 +321,6 @@ int main(int argc, char** argv) {
 
     // Mesh wrangling operations
     {
-      // MyMesh mesh;
     }
 
     // Export if outfile specified

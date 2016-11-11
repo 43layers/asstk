@@ -16,6 +16,9 @@
 
 #include "boost/filesystem.hpp"
 
+#include <OpenMesh/Core/Mesh/PolyMesh_ArrayKernelT.hh>
+typedef OpenMesh::PolyMesh_ArrayKernelT<>  MyMesh;
+
 using boost::filesystem::path;
 typedef unsigned int uint;
 
@@ -120,7 +123,7 @@ void printNode(const aiNode* pNode, aiMesh** meshes, unsigned int depth) {
   printIndent(depth);
   printf("Node - %s: %d meshes, %d children\n", pNode->mName.C_Str(), pNode->mNumMeshes, pNode->mNumChildren);
   for (size_t i = 0; i < pNode->mNumMeshes; i++) {
-    //printMeshStats(meshes[pNode->mMeshes[i]], depth + 1);
+    printMeshStats(meshes[pNode->mMeshes[i]], depth + 1);
   }
   for (size_t i = 0; i < pNode->mNumChildren; i++) {
     printNode(pNode->mChildren[i], meshes, depth + 1);
@@ -134,7 +137,7 @@ void printSceneStats(const aiScene* scene) {
 ProgOpts readOpts(int argc, char** argv) {
   int c;
   ProgOpts out;
-  while ((c = getopt(argc, argv, "s:xo:f:")) != -1) {
+  while ((c = getopt(argc, argv, "s:xto:f:")) != -1) {
     switch (c) {
     case 'o':
       out.outFile = optarg;
@@ -205,6 +208,7 @@ void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
   for (size_t meshIdx = 0; meshIdx < pScene->mNumMeshes; meshIdx++) {
     // Find mesh's existing texture
     const aiMesh* pMesh = pScene->mMeshes[meshIdx];
+    if (!pMesh->HasTextureCoords(0)) continue;
     uint materialIndex = pMesh->mMaterialIndex;
     aiMaterial* pMaterial = pScene->mMaterials[materialIndex];
     aiString s;
@@ -216,7 +220,7 @@ void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
     // Rename it (within the mesh) to NAME_tex_N.EXT
     path ext = oldTexturePath.extension();
     std::stringstream newTextureNameStream;
-    newTextureNameStream << stem.string() << "_tex_" << meshIdx << ext.string();
+    newTextureNameStream << stem.string() << "_tex_" << meshIdx << ".jpg";
     aiString newName(newTextureNameStream.str());
     pMaterial->AddProperty(&newName, AI_MATKEY_TEXTURE_DIFFUSE(0));
 
@@ -282,6 +286,11 @@ int main(int argc, char** argv) {
     if (opts.scale != 1.0) {
       printf("Scaling mesh by %f\n", opts.scale);
       scaleSceneMeshes(scene, opts.scale);
+    }
+
+    // Mesh wrangling operations
+    {
+      // MyMesh mesh;
     }
 
     // Export if outfile specified

@@ -243,10 +243,11 @@ aiScene combineMeshes(uint numMeshes, aiMesh** pMeshes, path useTexture) {
     aiMesh* pMesh = pMeshes[i];
 
     for(uint tci = 0; tci < pMesh->mNumVertices; tci++) {
-      const auto& t = pMesh->mTextureCoords[0][tci];
       const auto& v = pMesh->mVertices[tci];
       pCombined->mVertices[vertexOffset + tci] = aiVector3D(v.x, v.y, v.z);
-      pCombined->mTextureCoords[0][vertexOffset + tci] = aiVector3D(t.x, t.y, 0);
+
+      const auto& t = pMesh->mTextureCoords[0][tci];
+      pCombined->mTextureCoords[0][vertexOffset + tci] = aiVector3D((t.x + i) / numMeshes, t.y, 0);
     }
 
     for (uint faceIdx = 0; faceIdx < pMesh->mNumFaces; faceIdx++) {

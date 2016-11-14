@@ -28,6 +28,7 @@ struct ProgOpts {
   double scale = 1.0;
   int outFormat = -1;
   bool printStats = false;
+  bool combineMeshes = false;
 };
 
 static const double FLOAT_MAX = std::numeric_limits<float>::max();
@@ -136,7 +137,7 @@ void printSceneStats(const aiScene* scene) {
 ProgOpts readOpts(int argc, char** argv) {
   int c;
   ProgOpts out;
-  while ((c = getopt(argc, argv, "s:xto:f:")) != -1) {
+  while ((c = getopt(argc, argv, "s:xtco:f:")) != -1) {
     switch (c) {
     case 'o':
       out.outFile = optarg;
@@ -152,6 +153,9 @@ ProgOpts readOpts(int argc, char** argv) {
       break;
     case 't':
       out.printStats = true;
+      break;
+    case 'c':
+      out.combineMeshes = true;
       break;
     case '?':
       if (optopt == 'o')
@@ -191,6 +195,86 @@ void scaleSceneMeshes(const aiScene* pScene, double scale) {
       v *= float(scale);
     }
   }
+}
+
+aiScene combineMeshes(uint numMeshes, aiMesh** pMeshes) {
+  aiMesh* pCombined = nullptr;
+  aiScene scene;
+  {
+    scene.mRootNode = new aiNode();
+    scene.mMaterials = new aiMaterial*[1];
+    scene.mMaterials[0] = new aiMaterial();
+    scene.mNumMaterials = 1;
+
+    scene.mNumMeshes = 1;
+    scene.mMeshes = new aiMesh*[1];
+    scene.mMeshes[0] = new aiMesh();
+    pCombined = scene.mMeshes[0];
+    pCombined->mMaterialIndex = 0;
+
+    scene.mRootNode->mMeshes = new unsigned int[1];
+    scene.mRootNode->mMeshes[0] = 0;
+    scene.mRootNode->mNumMeshes = 1;
+  }
+
+  pCombined->mPrimitiveTypes = aiPrimitiveType_TRIANGLE;
+
+  // Make first pass to collect the total numbers of members
+  for (uint i = 0; i < numMeshes; i++) {
+    aiMesh* pMesh = pMeshes[i];
+    pCombined->mNumFaces += pMesh->mNumFaces;
+    pCombined->mNumVertices += pMesh->mNumVertices;
+  }
+
+  pCombined->mFaces = new aiFace[pCombined->mNumFaces];
+  pCombined->mVertices = new aiVector3D[pCombined->mNumVertices];
+  pCombined->mNumUVComponents[0] = 2;
+  pCombined->mTextureCoords[0] = new aiVector3D[pCombined->mNumVertices];
+
+  // Second pass to fill created arrays
+  size_t faceOffset = 0;
+  size_t vertexOffset = 0;
+  for (uint i = 0; i < numMeshes; i++) {
+    aiMesh* pMesh = pMeshes[i];
+
+    for(uint tci = 0; tci < pMesh->mNumVertices; tci++) {
+      const auto& t = pMesh->mTextureCoords[0][tci];
+      const auto& v = pMesh->mVertices[tci];
+      std::cout << v.x << " " << v.y << " " << v.z << std::endl;
+      std::cout << t.x << " " << t.y << std::endl;
+      pCombined->mVertices[vertexOffset + tci] = aiVector3D(v.x, v.y, v.z);
+      pCombined->mTextureCoords[0][vertexOffset + tci] = aiVector3D(t.x, t.y, 0);
+    }
+
+    for (uint faceIdx = 0; faceIdx < pMesh->mNumFaces; faceIdx++) {
+      aiFace f = pMesh->mFaces[faceIdx];
+      for (uint idxIdx = 0; idxIdx < f.mNumIndices; idxIdx++) {
+        f.mIndices[idxIdx] += vertexOffset;
+      }
+      pCombined->mFaces[faceIdx + faceOffset] = f;
+    }
+
+    faceOffset += pMesh->mNumFaces;
+    vertexOffset += pMesh->mNumVertices;
+  }
+
+  std::cout << "Num vertices " << pCombined->mNumVertices << std::endl;
+  for (uint i = 0; i < pCombined->mNumVertices; i++) {
+    const aiVector3D& v = pCombined->mVertices[i];
+    std::cout << v.x << " " << v.y << " " << v.z << std::endl;
+  }
+
+  std::cout << "Faces" << std::endl;
+  for (uint i = 0; i < pCombined->mNumFaces; i++) {
+    const aiFace& f = pCombined->mFaces[i];
+    std::cout << "mNumIndices " << f.mNumIndices << std::endl;
+    for (uint idxIdx = 0; idxIdx < f.mNumIndices; idxIdx++) {
+      std::cout << f.mIndices[idxIdx] << " ";
+    }
+    std::cout << std::endl;
+  }
+
+  return scene;
 }
 
 void convertImage(std::string inPath, std::string outPath) {
@@ -348,7 +432,15 @@ int main(int argc, char** argv) {
         printf("Couldn't find appropriate exporter for extension %s\n", ext.c_str());
         abort();
       }
-      exporter.Export(scene, pOutDesc->id, outFilePath.string());
+
+      if (opts.combineMeshes) {
+        aiScene combinedScene = combineMeshes(scene->mNumMeshes, scene->mMeshes);
+        exporter.Export(&combinedScene, pOutDesc->id, outFilePath.string());
+        std::cout << "Combined mesh created" << std::endl;
+      } else {
+        std::cout << "Calling export " << std::endl;
+        exporter.Export(scene, pOutDesc->id, outFilePath.string());
+      }
       std::cout << "Exported to " << outFilePath << std::endl;
     }
 

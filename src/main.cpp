@@ -18,6 +18,8 @@
 #include "boost/filesystem.hpp"
 using boost::filesystem::path;
 
+#define println(x) std::cout << x << std::endl;
+
 
 typedef unsigned int uint;
 
@@ -197,7 +199,7 @@ void scaleSceneMeshes(const aiScene* pScene, double scale) {
   }
 }
 
-aiScene combineMeshes(uint numMeshes, aiMesh** pMeshes) {
+aiScene combineMeshes(uint numMeshes, aiMesh** pMeshes, path useTexture) {
   aiMesh* pCombined = nullptr;
   aiScene scene;
   {
@@ -205,6 +207,9 @@ aiScene combineMeshes(uint numMeshes, aiMesh** pMeshes) {
     scene.mMaterials = new aiMaterial*[1];
     scene.mMaterials[0] = new aiMaterial();
     scene.mNumMaterials = 1;
+
+    aiString texPath(useTexture.string());
+    scene.mMaterials[0]->AddProperty(&texPath, AI_MATKEY_TEXTURE_DIFFUSE(0));
 
     scene.mNumMeshes = 1;
     scene.mMeshes = new aiMesh*[1];
@@ -240,8 +245,6 @@ aiScene combineMeshes(uint numMeshes, aiMesh** pMeshes) {
     for(uint tci = 0; tci < pMesh->mNumVertices; tci++) {
       const auto& t = pMesh->mTextureCoords[0][tci];
       const auto& v = pMesh->mVertices[tci];
-      std::cout << v.x << " " << v.y << " " << v.z << std::endl;
-      std::cout << t.x << " " << t.y << std::endl;
       pCombined->mVertices[vertexOffset + tci] = aiVector3D(v.x, v.y, v.z);
       pCombined->mTextureCoords[0][vertexOffset + tci] = aiVector3D(t.x, t.y, 0);
     }
@@ -258,22 +261,6 @@ aiScene combineMeshes(uint numMeshes, aiMesh** pMeshes) {
     vertexOffset += pMesh->mNumVertices;
   }
 
-  std::cout << "Num vertices " << pCombined->mNumVertices << std::endl;
-  for (uint i = 0; i < pCombined->mNumVertices; i++) {
-    const aiVector3D& v = pCombined->mVertices[i];
-    std::cout << v.x << " " << v.y << " " << v.z << std::endl;
-  }
-
-  std::cout << "Faces" << std::endl;
-  for (uint i = 0; i < pCombined->mNumFaces; i++) {
-    const aiFace& f = pCombined->mFaces[i];
-    std::cout << "mNumIndices " << f.mNumIndices << std::endl;
-    for (uint idxIdx = 0; idxIdx < f.mNumIndices; idxIdx++) {
-      std::cout << f.mIndices[idxIdx] << " ";
-    }
-    std::cout << std::endl;
-  }
-
   return scene;
 }
 
@@ -288,8 +275,14 @@ bool montageImages(std::vector<path> images, path writeTo) {
   Magick::Image image;
 
   for (path p : images) {
-    if (!boost::filesystem::exists(p)) return false;
-    if (!boost::filesystem::is_regular_file(p)) return false;
+    if (!boost::filesystem::exists(p)) {
+      println(p << " was not found on filesystem");
+      return false;
+    }
+    if (!boost::filesystem::is_regular_file(p)) {
+      println(p << " is not a regular file");
+      return false;
+    }
 
     image.read(p.string());
     sourceImageList.push_back(image);
@@ -309,7 +302,7 @@ bool montageImages(std::vector<path> images, path writeTo) {
   return true;
 }
 
-void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
+path convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
   path stem = outpath.stem();
   path inDir = inpath.parent_path();
   path outDir = outpath.parent_path();
@@ -323,9 +316,9 @@ void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
     uint materialIndex = pMesh->mMaterialIndex;
     aiMaterial* pMaterial = pScene->mMaterials[materialIndex];
     aiString s;
-    path oldTexturePath;
+    path oldTexturePath = inDir;
     if (AI_SUCCESS == pMaterial->Get(AI_MATKEY_TEXTURE_DIFFUSE(0), s)) {
-      oldTexturePath = path(s.data);
+      oldTexturePath /= path(s.data);
     }
 
     oldTextures.push_back(oldTexturePath);
@@ -347,7 +340,12 @@ void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
 
   path montageOut = outDir;
   montageOut /= path("tex_montage.jpg");
-  montageImages(oldTextures, montageOut);
+  if (montageImages(oldTextures, montageOut)) {
+    std::cout << "Combined textures successfully" << std::endl;
+  } else {
+    std::cout << "Combining textures failed" << std::endl;
+  }
+  return montageOut.filename();;
 }
 
 const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter, std::string ext) {
@@ -413,8 +411,6 @@ int main(int argc, char** argv) {
       std::string stem = outFilePath.stem().string();
       std::string ext = outFilePath.extension().string().substr(1);
 
-      convertSceneTextures(scene, opts.inFile, opts.outFile);
-
       const aiExportFormatDesc* pOutDesc = nullptr;
       if (opts.outFormat != -1) {
         pOutDesc = exporter.GetExportFormatDescription(opts.outFormat);
@@ -434,11 +430,10 @@ int main(int argc, char** argv) {
       }
 
       if (opts.combineMeshes) {
-        aiScene combinedScene = combineMeshes(scene->mNumMeshes, scene->mMeshes);
+        path texOut = convertSceneTextures(scene, opts.inFile, opts.outFile);
+        aiScene combinedScene = combineMeshes(scene->mNumMeshes, scene->mMeshes, texOut);
         exporter.Export(&combinedScene, pOutDesc->id, outFilePath.string());
-        std::cout << "Combined mesh created" << std::endl;
       } else {
-        std::cout << "Calling export " << std::endl;
         exporter.Export(scene, pOutDesc->id, outFilePath.string());
       }
       std::cout << "Exported to " << outFilePath << std::endl;

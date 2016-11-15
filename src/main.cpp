@@ -303,12 +303,10 @@ bool montageImages(std::vector<path> images, path writeTo) {
   return true;
 }
 
-path convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
+void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
   path stem = outpath.stem();
   path inDir = inpath.parent_path();
   path outDir = outpath.parent_path();
-
-  std::vector<path> oldTextures;
 
   for (size_t meshIdx = 0; meshIdx < pScene->mNumMeshes; meshIdx++) {
     // Find mesh's existing texture
@@ -321,8 +319,6 @@ path convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
     if (AI_SUCCESS == pMaterial->Get(AI_MATKEY_TEXTURE_DIFFUSE(0), s)) {
       oldTexturePath /= path(s.data);
     }
-
-    oldTextures.push_back(oldTexturePath);
 
     // Rename it (within the mesh) to NAME_tex_N.EXT
     path ext = oldTexturePath.extension();
@@ -338,15 +334,39 @@ path convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
     texIn /= path(oldTexturePath);
     convertImage(texIn.string(), texOut.string());
   }
+}
 
-  path montageOut = outDir;
-  montageOut /= path("tex_montage.jpg");
-  if (montageImages(oldTextures, montageOut)) {
-    std::cout << "Combined textures successfully" << std::endl;
-  } else {
-    std::cout << "Combining textures failed" << std::endl;
-  }
-  return montageOut.filename();;
+path combineSceneTextures(const aiScene* pScene, path inpath, path outpath) {
+    path stem = outpath.stem();
+    path inDir = inpath.parent_path();
+    path outDir = outpath.parent_path();
+
+    std::vector<path> oldTextures;
+
+    for (size_t meshIdx = 0; meshIdx < pScene->mNumMeshes; meshIdx++) {
+      // Find mesh's existing texture
+      const aiMesh* pMesh = pScene->mMeshes[meshIdx];
+      if (!pMesh->HasTextureCoords(0)) continue;
+      uint materialIndex = pMesh->mMaterialIndex;
+      aiMaterial* pMaterial = pScene->mMaterials[materialIndex];
+      aiString s;
+      path oldTexturePath = inDir;
+      if (AI_SUCCESS == pMaterial->Get(AI_MATKEY_TEXTURE_DIFFUSE(0), s)) {
+        oldTexturePath /= path(s.data);
+      }
+      oldTextures.push_back(oldTexturePath);
+    }
+
+    path montageOut = outDir;
+    std::stringstream newTextureNameStream;
+    newTextureNameStream << stem.string() << "_tex.jpg";
+    montageOut /= path(newTextureNameStream.str());
+    if (montageImages(oldTextures, montageOut)) {
+      std::cout << "Combined textures successfully" << std::endl;
+    } else {
+      std::cout << "Combining textures failed" << std::endl;
+    }
+    return montageOut.filename();;
 }
 
 const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter, std::string ext) {
@@ -431,10 +451,11 @@ int main(int argc, char** argv) {
       }
 
       if (opts.combineMeshes) {
-        path texOut = convertSceneTextures(scene, opts.inFile, opts.outFile);
+        path texOut = combineSceneTextures(scene, opts.inFile, opts.outFile);
         aiScene combinedScene = combineMeshes(scene->mNumMeshes, scene->mMeshes, texOut);
         exporter.Export(&combinedScene, pOutDesc->id, outFilePath.string());
       } else {
+        convertSceneTextures(scene, opts.inFile, opts.outFile);
         exporter.Export(scene, pOutDesc->id, outFilePath.string());
       }
       std::cout << "Exported to " << outFilePath << std::endl;

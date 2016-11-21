@@ -5,6 +5,7 @@
 #include <iostream>
 #include <sstream>
 #include <list>
+#include <map>
 
 #include <assimp/Importer.hpp> // C++ importer interface
 #include <assimp/Exporter.hpp>
@@ -45,6 +46,26 @@ struct BBox {
 
   float minZ = FLOAT_MAX;
   float maxZ = FLOAT_MIN;
+
+  BBox& operator +=(const BBox& b) {
+    this->minX = std::min(this->minX, b.minX);
+    this->maxX = std::max(this->maxX, b.maxX);
+    this->minY = std::min(this->minY, b.minY);
+    this->maxY = std::max(this->maxY, b.maxY);
+    this->minZ = std::min(this->minZ, b.minZ);
+    this->maxZ = std::max(this->maxZ, b.maxZ);
+    return *this;
+  }
+
+  friend BBox operator +(BBox a, const BBox& b) {
+    a += b;
+    return a;
+  }
+};
+
+struct TextureCombination {
+  std::map<uint, uint> materialIndexMap;
+  path combinedTextureName;
 };
 
 class myStream : public Assimp::LogStream {
@@ -105,7 +126,7 @@ void printIndent(unsigned int depth) {
   }
 }
 
-void printMeshStats(const aiMesh* pMesh, unsigned int depth) {
+BBox printMeshStats(const aiMesh* pMesh, unsigned int depth) {
   BBox bb = calculateBBox(pMesh);
   float volume = calculateMeshVolume(pMesh);
 
@@ -119,14 +140,21 @@ void printMeshStats(const aiMesh* pMesh, unsigned int depth) {
   printIndent(depth + 1); printf("Volume %f (%f)\n", volume, volume / 1000);
   printIndent(depth + 1); printf("Color channels: %d\n", pMesh->GetNumColorChannels());
   printIndent(depth + 1); printf("UV channels: %d\n", pMesh->GetNumUVChannels());
+
+  return bb;
 }
 
 void printNode(const aiNode* pNode, aiMesh** meshes, unsigned int depth) {
   printIndent(depth);
   printf("Node - %s: %d meshes, %d children\n", pNode->mName.C_Str(), pNode->mNumMeshes, pNode->mNumChildren);
+  BBox bb;
   for (size_t i = 0; i < pNode->mNumMeshes; i++) {
-    printMeshStats(meshes[pNode->mMeshes[i]], depth + 1);
+    bb += printMeshStats(meshes[pNode->mMeshes[i]], depth + 1);
   }
+  printf("Total BBOX\n");
+  printIndent(depth + 1); printf("X %f\n", bb.maxX - bb.minX);
+  printIndent(depth + 1); printf("Y %f\n", bb.maxY - bb.minY);
+  printIndent(depth + 1); printf("Z %f\n", bb.maxZ - bb.minZ);
   for (size_t i = 0; i < pNode->mNumChildren; i++) {
     printNode(pNode->mChildren[i], meshes, depth + 1);
   }
@@ -199,7 +227,12 @@ void scaleSceneMeshes(const aiScene* pScene, double scale) {
   }
 }
 
-aiScene combineMeshes(uint numMeshes, aiMesh** pMeshes, path useTexture) {
+aiScene combineMeshes(const aiScene* pSceneIn, TextureCombination texCombo) {
+  path useTexture = texCombo.combinedTextureName;
+  uint numMeshes = pSceneIn->mNumMeshes;
+  aiMesh** pMeshes = pSceneIn->mMeshes;
+  uint numMaterials = texCombo.materialIndexMap.size();
+
   aiMesh* pCombined = nullptr;
   aiScene scene;
   {
@@ -241,13 +274,17 @@ aiScene combineMeshes(uint numMeshes, aiMesh** pMeshes, path useTexture) {
   size_t vertexOffset = 0;
   for (uint i = 0; i < numMeshes; i++) {
     aiMesh* pMesh = pMeshes[i];
+    uint materialIndex = texCombo.materialIndexMap[pMesh->mMaterialIndex];
 
-    for(uint tci = 0; tci < pMesh->mNumVertices; tci++) {
-      const auto& v = pMesh->mVertices[tci];
-      pCombined->mVertices[vertexOffset + tci] = aiVector3D(v.x, v.y, v.z);
+    for(uint vertIdx = 0; vertIdx < pMesh->mNumVertices; vertIdx++) {
+      const auto& v = pMesh->mVertices[vertIdx];
+      pCombined->mVertices[vertexOffset + vertIdx] = aiVector3D(v.x, v.y, v.z);
 
-      const auto& t = pMesh->mTextureCoords[0][tci];
-      pCombined->mTextureCoords[0][vertexOffset + tci] = aiVector3D((t.x + i) / numMeshes, t.y, 0);
+      const auto& t = pMesh->mTextureCoords[0][vertIdx];
+      auto newTexCoord = aiVector3D(t.x, t.y, 0);
+      //newTexCoord.x = (t.x + (float)materialIndex) / (float)numMaterials
+      newTexCoord.x = float(t.x + materialIndex) / (float)numMaterials;
+      pCombined->mTextureCoords[0][vertexOffset + vertIdx] = newTexCoord;
     }
 
     for (uint faceIdx = 0; faceIdx < pMesh->mNumFaces; faceIdx++) {
@@ -336,25 +373,24 @@ void convertSceneTextures(const aiScene* pScene, path inpath, path outpath) {
   }
 }
 
-path combineSceneTextures(const aiScene* pScene, path inpath, path outpath) {
+// Take all materials in the scene, and combine into a single texture image, in a single montage row, in order of materialIndex
+TextureCombination combineSceneTextures(const aiScene* pScene, path inpath, path outpath) {
     path stem = outpath.stem();
     path inDir = inpath.parent_path();
     path outDir = outpath.parent_path();
 
-    std::vector<path> oldTextures;
+    TextureCombination out;
 
-    for (size_t meshIdx = 0; meshIdx < pScene->mNumMeshes; meshIdx++) {
-      // Find mesh's existing texture
-      const aiMesh* pMesh = pScene->mMeshes[meshIdx];
-      if (!pMesh->HasTextureCoords(0)) continue;
-      uint materialIndex = pMesh->mMaterialIndex;
-      aiMaterial* pMaterial = pScene->mMaterials[materialIndex];
+    std::vector<path> oldTextures;
+    for (size_t matIdx = 0; matIdx < pScene->mNumMaterials; matIdx++) {
+      aiMaterial* pMaterial = pScene->mMaterials[matIdx];
       aiString s;
       path oldTexturePath = inDir;
       if (AI_SUCCESS == pMaterial->Get(AI_MATKEY_TEXTURE_DIFFUSE(0), s)) {
         oldTexturePath /= path(s.data);
+        oldTextures.push_back(oldTexturePath);
+        out.materialIndexMap[matIdx] = oldTextures.size() - 1;
       }
-      oldTextures.push_back(oldTexturePath);
     }
 
     path montageOut = outDir;
@@ -366,7 +402,8 @@ path combineSceneTextures(const aiScene* pScene, path inpath, path outpath) {
     } else {
       std::cout << "Combining textures failed" << std::endl;
     }
-    return montageOut.filename();;
+    out.combinedTextureName = montageOut.filename();
+    return out;
 }
 
 const aiExportFormatDesc* findFormatDescForExt(const Assimp::Exporter& exporter, std::string ext) {
@@ -451,8 +488,8 @@ int main(int argc, char** argv) {
       }
 
       if (opts.combineMeshes) {
-        path texOut = combineSceneTextures(scene, opts.inFile, opts.outFile);
-        aiScene combinedScene = combineMeshes(scene->mNumMeshes, scene->mMeshes, texOut);
+        TextureCombination texOut = combineSceneTextures(scene, opts.inFile, opts.outFile);
+        aiScene combinedScene = combineMeshes(scene, texOut);
         exporter.Export(&combinedScene, pOutDesc->id, outFilePath.string());
       } else {
         convertSceneTextures(scene, opts.inFile, opts.outFile);

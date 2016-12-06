@@ -144,24 +144,25 @@ BBox printMeshStats(const aiMesh* pMesh, unsigned int depth) {
   return bb;
 }
 
-void printNode(const aiNode* pNode, aiMesh** meshes, unsigned int depth) {
+BBox printNode(const aiNode* pNode, aiMesh** meshes, unsigned int depth) {
   printIndent(depth);
   printf("Node - %s: %d meshes, %d children\n", pNode->mName.C_Str(), pNode->mNumMeshes, pNode->mNumChildren);
   BBox bb;
   for (size_t i = 0; i < pNode->mNumMeshes; i++) {
     bb += printMeshStats(meshes[pNode->mMeshes[i]], depth + 1);
   }
-  printf("Total BBOX\n");
-  printIndent(depth + 1); printf("X %f\n", bb.maxX - bb.minX);
-  printIndent(depth + 1); printf("Y %f\n", bb.maxY - bb.minY);
-  printIndent(depth + 1); printf("Z %f\n", bb.maxZ - bb.minZ);
   for (size_t i = 0; i < pNode->mNumChildren; i++) {
-    printNode(pNode->mChildren[i], meshes, depth + 1);
+    bb += printNode(pNode->mChildren[i], meshes, depth + 1);
   }
+  return bb;
 }
 
 void printSceneStats(const aiScene* scene) {
-  printNode(scene->mRootNode, scene->mMeshes, 0);
+  BBox bb = printNode(scene->mRootNode, scene->mMeshes, 0);
+  printf("Total BBOX\n");
+  printIndent(1); printf("X %f\n", bb.maxX - bb.minX);
+  printIndent(1); printf("Y %f\n", bb.maxY - bb.minY);
+  printIndent(1); printf("Z %f\n", bb.maxZ - bb.minZ);
 }
 
 ProgOpts readOpts(int argc, char** argv) {
@@ -282,7 +283,6 @@ aiScene combineMeshes(const aiScene* pSceneIn, TextureCombination texCombo) {
 
       const auto& t = pMesh->mTextureCoords[0][vertIdx];
       auto newTexCoord = aiVector3D(t.x, t.y, 0);
-      //newTexCoord.x = (t.x + (float)materialIndex) / (float)numMaterials
       newTexCoord.x = float(t.x + materialIndex) / (float)numMaterials;
       pCombined->mTextureCoords[0][vertexOffset + vertIdx] = newTexCoord;
     }
@@ -439,6 +439,7 @@ int main(int argc, char** argv) {
     // Read file
     const std::string& pFile(opts.inFile);
     //TODO: aiProcess::Triangulate
+    println("Importing scene");
     const aiScene* scene = importer.ReadFile( pFile,
       aiProcess_Triangulate |
       aiProcess_JoinIdenticalVertices |
@@ -449,6 +450,7 @@ int main(int argc, char** argv) {
         printf("Importer error: %s\n", importer.GetErrorString());
         return 1;
     }
+    println("Imported successfully");
 
     if (opts.printStats) {
       printSceneStats(scene);
@@ -488,8 +490,11 @@ int main(int argc, char** argv) {
       }
 
       if (opts.combineMeshes) {
+        println("Combining textures");
         TextureCombination texOut = combineSceneTextures(scene, opts.inFile, opts.outFile);
+        println("Combining meshes");
         aiScene combinedScene = combineMeshes(scene, texOut);
+        println("Exporting...");
         exporter.Export(&combinedScene, pOutDesc->id, outFilePath.string());
       } else {
         convertSceneTextures(scene, opts.inFile, opts.outFile);
